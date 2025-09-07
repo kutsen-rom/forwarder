@@ -6,6 +6,14 @@ SOURCES = {
      "BB": {
         "SOURCE": -1001449478440, 
         "KEYWORDS": ["Coming Soon to"]
+        },
+     "RN1": {
+        "SOURCE": -1002927278805, 
+        "KEYWORDS": ["keyword1", "keyword4", "keyword3", "keyword4"]
+        },
+     "RN2": {
+        "SOURCE": -1002874216033, 
+        "KEYWORDS": ["key03", "key02", "key01",]
         }
     }
 
