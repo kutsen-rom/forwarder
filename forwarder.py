@@ -1,19 +1,24 @@
 import os
 import asyncio
 import threading
+import sys
 from flask import Flask
 from waitress import serve
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.types import User, Channel, Chat
 from dotenv import load_dotenv
+from sources_config import SOURCES, get_all_sources, get_keywords_for_source, get_source_name
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Minimal HTTP server for Render health checks
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "🤖 Telegram Forwarder Bot is Running", 200
+    return "Service is Running", 200
 
 @app.route('/health')
 def health():
@@ -28,12 +33,6 @@ def run_web_server():
 web_thread = threading.Thread(target=run_web_server, daemon=True)
 web_thread.start()
 
-# Import keyword configuration
-from keywords_config import ALL_KEYWORDS
-
-# Load environment variables from .env file
-load_dotenv()
-
 def get_env_var(name, required=True):
     value = os.getenv(name)
     if required and value is None:
@@ -47,21 +46,17 @@ api_hash = get_env_var('API_HASH')
 dest_group_id = int(get_env_var('DEST_GROUP_ID'))
 session_string = get_env_var('SESSION_STRING')
 
-# Get multiple source chats - comma separated list
-source_chats_str = get_env_var('SOURCE_CHAT_IDS')
-source_chat_ids = [int(chat_id.strip()) for chat_id in source_chats_str.split(',') if chat_id.strip()]
-
-# Get keywords from config
-keywords = ALL_KEYWORDS
-keywords_lower = [kw.lower() for kw in keywords]
+# Get sources from config
+source_chat_ids = get_all_sources()
 
 print("🔧 Configuration loaded:")
 print(f"   API ID: {api_id}")
-print(f"   Source Chats: {len(source_chat_ids)} chats")
 print(f"   Destination Group: {dest_group_id}")
-print(f"   Keywords: {len(keywords)} keywords")
-if len(keywords) <= 10:
-    print(f"   Keyword List: {', '.join(keywords)}")
+print(f"   Monitoring {len(SOURCES)} sources:")
+
+for source_name, source_info in SOURCES.items():
+    keywords = source_info["KEYWORDS"]
+    print(f"     • {source_name}: {len(keywords)} keywords")
 
 # Create Telegram client
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
@@ -89,12 +84,6 @@ def get_sender_username(sender):
         return getattr(sender, 'username', None)
     return None
 
-def get_chat_name(chat_id, chat_entity=None):
-    """Get chat name for logging"""
-    if chat_entity:
-        return get_sender_name(chat_entity)
-    return f"Chat {chat_id}"
-
 def contains_keyword(message_text, keywords_list):
     """Check if message contains any of the keywords (case-insensitive)"""
     message_lower = message_text.lower()
@@ -112,14 +101,9 @@ def contains_keyword(message_text, keywords_list):
     
     return matched_keywords
 
-async def copy_message_content(message, dest_chat_id, source_chat_name):
+async def copy_message_content(message, dest_chat_id, source_chat_name, sender_name, sender_username=None):
     """Copy message content instead of forwarding"""
     try:
-        # Get sender information
-        sender = await message.get_sender()
-        sender_name = get_sender_name(sender)
-        sender_username = get_sender_username(sender)
-        
         # Build the message header with source chat info
         if sender_username:
             header = f"**From {sender_name} (@{sender_username}) in {source_chat_name}:**\n\n"
@@ -147,18 +131,25 @@ async def handler(event):
         message_text = event.message.text or ""
         sender = await event.get_sender()
         sender_name = get_sender_name(sender)
+        sender_username = get_sender_username(sender)
         
-        # Get the source chat entity for better logging
+        # Get the source chat info
+        source_chat_id = event.chat_id
         source_chat_entity = await event.get_chat()
         source_chat_name = get_sender_name(source_chat_entity)
+        source_config_name = get_source_name(source_chat_id)
         
-        print(f"📨 New message from {sender_name} in {source_chat_name}: {message_text[:100]}...")
+        # Get keywords specific to this source
+        source_keywords = get_keywords_for_source(source_chat_id)
+        source_keywords_lower = [kw.lower() for kw in source_keywords]
         
-        # Check if message contains any of our keywords
-        matched_keywords = contains_keyword(message_text, keywords_lower)
+        print(f"📨 New message from {sender_name} in {source_config_name}: {message_text[:100]}...")
+        
+        # Check if message contains any of this source's keywords
+        matched_keywords = contains_keyword(message_text, source_keywords_lower)
         
         if matched_keywords:
-            print(f"   ✅ Keywords matched: {matched_keywords}")
+            print(f"   ✅ Keywords matched for {source_config_name}: {matched_keywords}")
             print(f"   ➡️ Attempting to forward...")
             
             # First try to forward the message
@@ -171,14 +162,16 @@ async def handler(event):
                 print(f"   ➡️ Trying to copy message content instead...")
                 
                 # If forwarding fails, try to copy the content
-                copy_success = await copy_message_content(event.message, dest_group_id, source_chat_name)
+                copy_success = await copy_message_content(
+                    event.message, dest_group_id, source_config_name, sender_name, sender_username
+                )
                 if copy_success:
                     print(f"   ✅ Message content copied successfully!")
                 else:
                     print(f"   ❌ Both forwarding and copying failed!")
                     
         else:
-            print(f"   ❌ No keywords matched (ignoring)")
+            print(f"   ❌ No keywords matched for {source_config_name} (ignoring)")
             
     except Exception as e:
         print(f"   ❌ Error: {e}")
@@ -186,9 +179,8 @@ async def handler(event):
         traceback.print_exc()
 
 async def main():
-    print("🚀 Starting Telegram message forwarder...")
-    print(f"🔍 Monitoring {len(source_chat_ids)} source chats")
-    print(f"   Total keywords: {len(keywords)}")
+    print("🚀 Starting message forwarder...")
+    print(f"🔍 Monitoring {len(SOURCES)} sources with source-specific keywords")
     
     try:
         await client.start()
@@ -196,54 +188,74 @@ async def main():
         # Verify connection and permissions
         me = await client.get_me()
         me_name = get_sender_name(me)
-        print(f"✅ Logged in as: {me_name}")
         
         # Verify destination group access
         try:
             dest_entity = await client.get_entity(dest_group_id)
             dest_name = get_sender_name(dest_entity)
-            print(f"✅ Destination group: {dest_name}")
         except Exception as e:
             print(f"❌ Cannot access destination group: {e}")
             return
         
-        # Verify source chats access and list them
-        source_chat_names = []
-        for chat_id in source_chat_ids:
+        # Verify source chats access and collect info for startup message
+        source_info_list = []
+        inaccessible_sources = []
+        
+        for source_name, source_info in SOURCES.items():
+            chat_id = source_info["SOURCE"]
             try:
                 chat_entity = await client.get_entity(chat_id)
-                chat_name = get_sender_name(chat_entity)
-                source_chat_names.append(chat_name)
-                print(f"✅ Source chat: {chat_name}")
+                chat_display_name = get_sender_name(chat_entity)
+                keywords = source_info["KEYWORDS"]
+                
+                source_info_list.append({
+                    'config_name': source_name,
+                    'display_name': chat_display_name,
+                    'keywords': keywords,
+                    'keyword_count': len(keywords)
+                })
+                
+
+                
             except Exception as e:
-                print(f"❌ Cannot access source chat {chat_id}: {e}")
-                # Remove inaccessible chats from monitoring
-                source_chat_ids.remove(chat_id)
+                print(f"❌ Cannot access source {source_name} ({chat_id}): {e}")
+                inaccessible_sources.append(source_name)
+                # Remove inaccessible chat from monitoring
+                if chat_id in source_chat_ids:
+                    source_chat_ids.remove(chat_id)
         
         if not source_chat_ids:
             print("❌ No accessible source chats to monitor!")
             return
         
-        # Send startup message
+        # Send detailed startup message
         try:
-            source_list = "\n".join([f"• {name}" for name in source_chat_names])
-            keyword_sample = ", ".join(keywords[:5]) + ("..." if len(keywords) > 5 else "")
+            startup_message = "🤖 Forwarder bot is now online and monitoring!\n\n"
+            startup_message += f"**Monitoring {len(source_info_list)} sources:**\n"
             
-            await client.send_message(
-                dest_group_id, 
-                f"🤖 Forwarder bot is now online and monitoring!\n\n"
-                f"**Monitoring {len(source_chat_names)} sources:**\n{source_list}\n\n"
-                f"**Keywords:** {keyword_sample}\n"
-                f"**Total Keywords:** {len(keywords)}\n\n"
-                "I will forward messages containing your keywords. "
-                "If forwarding is restricted, I'll copy the message content instead."
-            )
-            print("✅ Startup message sent to destination group")
+            for source in source_info_list:
+                startup_message += f"• {source['display_name']}\n"
+            
+            startup_message += "\n"
+            
+            for source in source_info_list:
+                keyword_sample = ", ".join(source['keywords'])
+                
+                startup_message += f"**{source['display_name']} Keywords:** {keyword_sample}\n"
+                startup_message += f"**Total Keywords:** {source['keyword_count']}\n\n"
+            
+            if inaccessible_sources:
+                startup_message += f"⚠️ **Unable to access:** {', '.join(inaccessible_sources)}\n\n"
+            
+            startup_message += "I will forward messages containing your keywords. If forwarding is restricted, I'll copy the message content instead."
+            
+            await client.send_message(dest_group_id, startup_message)
+            
         except Exception as e:
             print(f"⚠️ Could not send startup message: {e}")
         
         print("✅ Bot is running and ready to forward messages!")
-        print("💡 Send messages with your keywords to any monitored chat to test")
+        print("💡 Send messages with specific keywords to monitored sources to test")
         
         await client.run_until_disconnected()
         
