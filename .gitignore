@@ -16,5 +16,4 @@ session_*
 Thumbs.db
 
 # Docker
-Dockerfile
 .dockerignore
