@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import sys
+import random
 from flask import Flask
 from waitress import serve
 from telethon import TelegramClient, events
@@ -61,6 +62,26 @@ for source_name, source_info in SOURCES.items():
 # Create Telegram client
 client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
+async def minimalist_activation():
+    """Absolute minimum to keep channels active - very lightweight"""
+    while True:
+        try:
+            # Just mark all channels as read - very lightweight operation
+            for source_name, source_info in SOURCES.items():
+                try:
+                    await client.send_read_acknowledge(source_info["SOURCE"])
+                except:
+                    pass  # Silent fail - no logging to reduce overhead
+            
+            # Wait 20 minutes - this is plenty to keep channels active
+            await asyncio.sleep(1200)  # 20 minutes
+            
+        except Exception as e:
+            # Very rare error logging (only 1% of errors)
+            if random.random() < 0.01:
+                print(f"❌ Activation error: {e}")
+            await asyncio.sleep(600)  # Wait 10 minutes on error
+
 def get_sender_name(sender):
     """Get the appropriate name for different sender types"""
     if isinstance(sender, User):
@@ -86,6 +107,9 @@ def get_sender_username(sender):
 
 def contains_keyword(message_text, keywords_list):
     """Check if message contains any of the keywords (case-insensitive)"""
+    if not message_text:
+        return []
+        
     message_lower = message_text.lower()
     matched_keywords = []
     
@@ -254,10 +278,17 @@ async def main():
         except Exception as e:
             print(f"⚠️ Could not send startup message: {e}")
         
+        # Start the minimalist channel activation task
+        activation_task = asyncio.create_task(minimalist_activation())
+        
         print("✅ Bot is running and ready to forward messages!")
         print("💡 Send messages with specific keywords to monitored sources to test")
         
-        await client.run_until_disconnected()
+        # Run both the message handler and activation task
+        await asyncio.gather(
+            client.run_until_disconnected(),
+            activation_task
+        )
         
     except Exception as e:
         print(f"❌ Fatal error: {e}")
