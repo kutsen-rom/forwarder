@@ -1,10 +1,32 @@
 import os
 import asyncio
-import sys
+import threading
+from flask import Flask
+from waitress import serve
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.types import User, Channel, Chat
 from dotenv import load_dotenv
+
+# Minimal HTTP server for Render health checks
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "🤖 Telegram Forwarder Bot is Running", 200
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_web_server():
+    """Run a simple HTTP server on port 8000"""
+    print("Starting HTTP server on port 8000...")
+    serve(app, host='0.0.0.0', port=8000)
+
+# Start HTTP server in background thread
+web_thread = threading.Thread(target=run_web_server, daemon=True)
+web_thread.start()
 
 # Import keyword configuration
 from keywords_config import ALL_KEYWORDS

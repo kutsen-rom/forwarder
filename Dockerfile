@@ -1,19 +1,13 @@
-FROM python:3.9-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install dependencies first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY forwarder.py .
-COPY keywords_config.py .
+COPY . .
 
-# Create non-root user for security
-RUN useradd -m -u 1000 telegrambot && \
-    chown -R telegrambot:telegrambot /app
-
-USER telegrambot
+# Expose port for HTTP health checks
+EXPOSE 8000
 
 CMD ["python", "forwarder.py"]

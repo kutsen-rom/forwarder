@@ -1,2 +1,4 @@
 telethon~=1.28.5
 python-dotenv~=1.0.0
+flask~=2.3.0
+waitress~=2.1.0
