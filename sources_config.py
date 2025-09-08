@@ -1,3 +1,5 @@
+INTERVAL = 600
+
 SOURCES = {
     "BN": {
         "SOURCE": -1001146915409, 
