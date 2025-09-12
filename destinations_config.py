@@ -9,7 +9,10 @@ DESTINATIONS = {
         "DESTINATION": -1002972933415,
         "SOURCES": {
             "BN": {"SOURCE": -1001146915409, "KEYWORDS": ["Will List", "Will Add"]},
-            "BNA": {"SOURCE": -1002450025950, "KEYWORDS": ["is the first platform to"]},
+            "BNA": {
+                "SOURCE": -1002450025950,
+                "KEYWORDS": ["is the first platform to", "Token Circulation"],
+            },
             "BB": {"SOURCE": -1001449478440, "KEYWORDS": ["Coming Soon to"]},
             # Testing sources
             "TEST_1": {"SOURCE": -1002927278805, "KEYWORDS": ["Coming Soon to"]},
