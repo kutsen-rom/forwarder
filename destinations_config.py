@@ -1,4 +1,4 @@
-INTERVAL_MINUTES = 7
+INTERVAL_MINUTES = 0.5
 
 # Limit of how many previous messages to check
 LAST_MESSAGES_LIMIT = 20
@@ -11,7 +11,11 @@ DESTINATIONS = {
             "BN": {"SOURCE": -1001146915409, "KEYWORDS": ["Will List", "Will Add"]},
             "BNA": {
                 "SOURCE": -1002450025950,
-                "KEYWORDS": ["is the first platform to", "Token Circulation"],
+                "KEYWORDS": [
+                    "is the first platform to",
+                    "Token Circulation",
+                    "is now live on",
+                ],
             },
             "BB": {"SOURCE": -1001449478440, "KEYWORDS": ["Coming Soon to"]},
             # Testing sources
